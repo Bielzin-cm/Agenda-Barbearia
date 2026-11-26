@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Agenda da Barbearia</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f2f4f7;--sf:#fff;--tx:#14213d;--mut:#5b6679;--ac:#c8102e;--ln:#d5dae3;--bl:#2457c5;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0d1424;--sf:#16203a;--tx:#eef1f7;--mut:#9aa6bd;--ac:#ff4d63;--ln:#2a3656;--bl:#6c93f0;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0d1424;--sf:#16203a;--tx:#eef1f7;--mut:#9aa6bd;--ac:#ff4d63;--ln:#2a3656;--bl:#6c93f0;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:Archivo,system-ui,sans-serif;line-height:1.45}
+.pole{height:12px;background:repeating-linear-gradient(-45deg,#c8102e 0 12px,#fff 12px 24px,#2457c5 24px 36px,#fff 36px 48px)}
+main{max-width:720px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:2rem;font-weight:800;margin:0 0 4px;letter-spacing:-.02em}
+h2{font-size:1.1rem;margin:24px 0 10px}
+p.sub{margin:0 0 16px;color:var(--mut)}
+.tabs{display:flex;gap:8px;margin-bottom:16px}
+button,input,select{font:inherit;color:inherit}
+.tab,.chip,.slot,.btn{border:1.5px solid var(--ln);background:var(--sf);border-radius:8px;padding:10px 14px;cursor:pointer}
+.tab[aria-pressed=true],.chip[aria-pressed=true],.slot[aria-pressed=true]{background:var(--tx);color:var(--bg);border-color:var(--tx)}
+.btn{background:var(--ac);color:#fff;border-color:var(--ac);font-weight:600}
+.btn.ghost{background:none;color:var(--tx);border-color:var(--ln)}
+.btn.sm{padding:6px 10px;font-size:.85rem}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--bl);outline-offset:2px}
+.strip{display:flex;gap:8px;overflow-x:auto;padding-bottom:8px}
+.chip{min-width:64px;text-align:center;flex:none;line-height:1.2}
+.chip small{display:block;color:inherit;opacity:.7}
+.chip:disabled{opacity:.45;cursor:not-allowed;text-decoration:line-through}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px}
+.slot:disabled{opacity:.4;cursor:not-allowed;text-decoration:line-through}
+.card{background:var(--sf);border:1.5px solid var(--ln);border-radius:10px;padding:16px;margin-top:12px}
+label{display:block;font-size:.9rem;font-weight:600;margin:10px 0 4px}
+input,select{width:100%;padding:10px;border:1.5px solid var(--ln);border-radius:8px;background:var(--bg)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.row.sp{justify-content:space-between}
+.item{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid var(--ln)}
+.item:last-child{border:0}
+.note{padding:12px 14px;border-left:5px solid var(--bl);background:var(--sf);border-radius:6px;margin-bottom:14px}
+.note.err{border-color:var(--ac)}
+.mut{color:var(--mut)}
+a{color:var(--bl);font-weight:600}
+</style></head>
+<body>
+<div class="pole"></div>
+<main>
+<h1>Barbearia</h1>
+<p class="sub">Escolha o dia, o horário e pronto. Se estiver lotado, entre na lista de espera.</p>
+<div class="tabs" id="tabs"></div>
+<div id="app"></div>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const iso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+const DEF={open:'09:00',close:'18:00',step:40,days:[2,3,4,5,6],closed:[]};
+const WD=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+const SVC={'Corte':'R$ 45','Barba':'R$ 35','Corte + barba':'R$ 70'};
+let S={cfg:{...DEF},book:{},wait:{}},sel=null,tab='cli',mode=null,owner=false,db=null,msg=null,F={name:'',phone:'',svc:'Corte'};
+const STORE='agenda-barbearia-v1';
+const persist=()=>localStorage.setItem(STORE,JSON.stringify(S));
+try{const saved=JSON.parse(localStorage.getItem(STORE)||'null');if(saved){S.cfg={...DEF,...saved.cfg};S.book=saved.book||{};S.wait=saved.wait||{}}}catch(e){}
+const mins=t=>{const[a,b]=t.split(':').map(Number);return a*60+b};
+const hhmm=m=>String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+const isOpen=ds=>{const d=new Date(ds+'T12:00');return S.cfg.days.includes(d.getDay())&&!S.cfg.closed.includes(ds)};
+const slots=()=>{const o=[],c=mins(S.cfg.close),st=Math.max(10,+S.cfg.step||40);for(let m=mins(S.cfg.open);m+st<=c;m+=st)o.push(hhmm(m));return o};
+const today=()=>iso(new Date());
+const nowM=()=>{const d=new Date();return d.getHours()*60+d.getMinutes()};
+const past=(ds,t)=>ds<today()||(ds===today()&&mins(t)<=nowM());
+const free=ds=>slots().filter(t=>!S.book[ds+'_'+t]&&!past(ds,t));
+const fmt=ds=>new Date(ds+'T12:00').toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'});
+function days(){const a=[];for(let i=0;i<14;i++){const d=new Date();d.setDate(d.getDate()+i);a.push(iso(d))}return a}
+function firstOpen(){return days().find(isOpen)||today()}
+
+async function put(col,id,data){if(col==='bookings')S.book[id]=data;else S.wait[id]=data;persist();if(db)await db.collection(col).doc(id).set(data)}
+async function del(col,id){if(col==='bookings')delete S.book[id];else delete S.wait[id];persist();if(db)await db.collection(col).doc(id).delete()}
+async function saveCfg(){persist();if(db)await db.doc('shop/config').set(S.cfg)}
+const guard=async f=>{try{await f()}catch(e){msg={t:'Não foi possível salvar. Tente de novo.',err:1}}render()};
+
+function wa(phone,text){let d=String(phone).replace(/\D/g,'');if(d.length<=11)d='55'+d;return 'https://wa.me/'+d+'?text='+encodeURIComponent(text)}
+
+function render(){
+ if(!sel)sel=firstOpen();
+ $('#tabs').innerHTML=owner?`<button class="tab" data-a="tab" data-v="cli" aria-pressed="${tab==='cli'}">Agendar</button><button class="tab" data-a="tab" data-v="adm" aria-pressed="${tab==='adm'}">Painel do barbeiro</button>`:'';
+ $('#app').innerHTML=(msg?`<div class="note${msg.err?' err':''}" role="status">${msg.html||esc(msg.t)}</div>`:'')+(tab==='adm'&&owner?admin():client());
+}
+
+function strip(){return `<div class="strip" role="group" aria-label="Dias">`+days().map(ds=>{const d=new Date(ds+'T12:00'),o=isOpen(ds);
+ return `<button class="chip" data-a="day" data-v="${ds}" aria-pressed="${ds===sel}" ${o?'':'disabled'}>${WD[d.getDay()]}<strong>${d.getDate()}</strong><small>${o?(free(ds).length?free(ds).length+' vagas':'Lotado'):'Fechado'}</small></button>`}).join('')+`</div>`}
+
+function client(){
+ let h=`<h2>1. Dia</h2>`+strip()+`<h2>2. Horário</h2><p class="mut" style="margin-top:-4px">${esc(fmt(sel))}</p>`;
+ if(!isOpen(sel))return h+`<div class="card">A barbearia não abre neste dia. Escolha outra data.</div>`;
+ const f=free(sel);
+ h+=`<div class="grid">`+slots().map(t=>{const tk=S.book[sel+'_'+t],p=past(sel,t);return `<button class="slot" data-a="slot" data-v="${t}" aria-pressed="${mode===t}" ${tk||p?'disabled':''}>${t}</button>`}).join('')+`</div>`;
+ if(!f.length)h+=`<div class="card"><strong>Todos os horários deste dia estão ocupados.</strong><p class="mut">Entre na lista de espera: se alguém cancelar, o barbeiro avisa você.</p></div>`;
+ if(mode&&mode!=='wait')h+=`<h2>3. Seus dados</h2><div class="card">${form()}<div class="row" style="margin-top:14px"><button class="btn" data-a="book">Confirmar ${esc(mode)}</button></div></div>`;
+ else if(mode==='wait')h+=`<h2>Lista de espera</h2><div class="card">${form(1)}<div class="row" style="margin-top:14px"><button class="btn" data-a="join">Entrar na lista de espera</button></div></div>`;
+ else h+=`<div class="row" style="margin-top:16px"><button class="btn ghost" data-a="wait">Entrar na lista de espera deste dia</button></div>`;
+ return h}
+
+function form(w){return `<label for="n">Nome</label><input id="n" data-f="name" value="${esc(F.name)}" autocomplete="name">
+<label for="p">WhatsApp (com DDD)</label><input id="p" data-f="phone" value="${esc(F.phone)}" inputmode="tel" autocomplete="tel">
+<label for="s">Serviço</label><select id="s" data-f="svc">${Object.keys(SVC).map(k=>`<option ${F.svc===k?'selected':''}>${k}</option>`).join('')}</select>`}
+
+function admin(){
+ const c=S.cfg,bs=Object.entries(S.book).filter(([k,v])=>v.date===sel).sort((a,b)=>a[1].time.localeCompare(b[1].time));
+ const ws=Object.entries(S.wait).sort((a,b)=>(a[1].date+a[0]).localeCompare(b[1].date+b[0]));
+ return `<h2>Dia</h2>`+strip().replace(/disabled/g,'')+
+ `<h2>Agendamentos de ${esc(fmt(sel))}</h2><div class="card">`+(bs.length?bs.map(([id,v])=>`<div class="item"><span><strong>${esc(v.time)}</strong> ${esc(v.name)} <span class="mut">· ${esc(v.svc)} · ${esc(v.phone)}</span></span><button class="btn ghost sm" data-a="cancel" data-v="${esc(id)}">Cancelar</button></div>`).join(''):`<span class="mut">Nenhum agendamento neste dia.</span>`)+`</div>
+ <h2>Lista de espera</h2><div class="card">`+(ws.length?ws.map(([id,v])=>`<div class="item"><span><strong>${esc(v.name)}</strong> <span class="mut">· ${esc(fmt(v.date))} · ${esc(v.svc)}</span></span><span class="row"><a href="${wa(v.phone,'Olá '+v.name+', abriu um horário na barbearia em '+fmt(v.date)+'. Quer agendar?')}" target="_blank" rel="noopener">Avisar</a><button class="btn ghost sm" data-a="rmwait" data-v="${esc(id)}">Remover</button></span></div>`).join(''):`<span class="mut">Ninguém na espera.</span>`)+`</div>
+ <h2>Funcionamento</h2><div class="card"><div class="row">`+WD.map((n,i)=>`<label class="row" style="margin:0"><input type="checkbox" style="width:auto" data-a="wd" data-v="${i}" ${c.days.includes(i)?'checked':''}> ${n}</label>`).join('')+`</div>
+ <div class="row" style="margin-top:12px"><div><label for="o">Abre</label><input id="o" type="time" data-c="open" value="${c.open}"></div><div><label for="c">Fecha</label><input id="c" type="time" data-c="close" value="${c.close}"></div><div><label for="d">Minutos por corte</label><input id="d" type="number" min="10" step="5" data-c="step" value="${c.step}"></div></div></div>
+ <h2>Dias fechados (feriados, folgas)</h2><div class="card"><div class="row"><input type="date" id="cd" style="width:auto" min="${today()}"><button class="btn sm" data-a="addclosed">Fechar este dia</button></div>`+
+ (c.closed.length?c.closed.slice().sort().map(d=>`<div class="item"><span>${esc(fmt(d))}</span><button class="btn ghost sm" data-a="rmclosed" data-v="${d}">Reabrir</button></div>`).join(''):'')+`</div>`}
+
+document.addEventListener('input',e=>{const t=e.target;if(t.dataset.f)F[t.dataset.f]=t.value;
+ if(t.dataset.c){S.cfg[t.dataset.c]=t.type==='number'?+t.value:t.value;clearTimeout(window._t);window._t=setTimeout(()=>guard(saveCfg),600)}});
+document.addEventListener('change',e=>{const t=e.target;if(t.dataset.a==='wd'){const i=+t.dataset.v,s=new Set(S.cfg.days);t.checked?s.add(i):s.delete(i);S.cfg.days=[...s].sort();guard(saveCfg)}});
+document.addEventListener('click',e=>{const b=e.target.closest('button[data-a]');if(!b||b.type==='checkbox')return;const a=b.dataset.a,v=b.dataset.v;msg=null;
+ if(a==='tab'){tab=v;render()}
+ else if(a==='day'){sel=v;mode=null;render()}
+ else if(a==='slot'){mode=v;render()}
+ else if(a==='wait'){mode='wait';render()}
+ else if(a==='book')guard(async()=>{
+  if(!F.name.trim()||F.phone.replace(/\D/g,'').length<10){msg={t:'Preencha nome e WhatsApp com DDD.',err:1};return}
+  const id=sel+'_'+mode;
+  if(S.book[id]||(db&&(await db.collection('bookings').doc(id).get()).exists)){msg={t:'Esse horário acabou de ser ocupado. Escolha outro.',err:1};return}
+  await put('bookings',id,{date:sel,time:mode,name:F.name.trim(),phone:F.phone.trim(),svc:F.svc});
+  msg={t:`Agendado: ${F.svc} em ${fmt(sel)} às ${mode}. Até lá, ${F.name.trim()}!`};mode=null});
+ else if(a==='join')guard(async()=>{
+  if(!F.name.trim()||F.phone.replace(/\D/g,'').length<10){msg={t:'Preencha nome e WhatsApp com DDD.',err:1};return}
+  await put('waitlist',String(Date.now()),{date:sel,name:F.name.trim(),phone:F.phone.trim(),svc:F.svc});
+  msg={t:`Você está na lista de espera de ${fmt(sel)}. O barbeiro avisa se abrir uma vaga.`};mode=null});
+ else if(a==='cancel')guard(async()=>{
+  const bk=S.book[v];await del('bookings',v);
+  const nx=Object.entries(S.wait).filter(([i,w])=>w.date===bk.date).sort()[0];
+  msg=nx?{html:`Cancelado. Primeiro da espera: <strong>${esc(nx[1].name)}</strong>. <a href="${wa(nx[1].phone,'Olá '+nx[1].name+', abriu um horário às '+bk.time+' em '+fmt(bk.date)+'. Quer agendar?')}" target="_blank" rel="noopener">Avisar no WhatsApp</a>`}:{t:'Agendamento cancelado.'}});
+ else if(a==='rmwait')guard(()=>del('waitlist',v));
+ else if(a==='addclosed'){const d=$('#cd').value;if(d&&!S.cfg.closed.includes(d)){S.cfg.closed.push(d);guard(saveCfg)}}
+ else if(a==='rmclosed'){S.cfg.closed=S.cfg.closed.filter(x=>x!==v);guard(saveCfg)}});
+
+render();
+(async()=>{
+ try{const u=await claude.use('user');owner=u?await u.isOwner():false;db=await claude.use('db')}catch(e){}
+ if(!db&&!owner)owner=true; /* modo demonstração fora do viewer */
+ if(db){
+  db.doc('shop/config').onSnapshot(s=>{if(s.exists)S.cfg={...DEF,...s.data()};render()});
+  db.collection('bookings').onSnapshot(q=>{S.book={};q.docs.forEach(d=>S.book[d.id]=d.data());render()});
+  db.collection('waitlist').onSnapshot(q=>{S.wait={};q.docs.forEach(d=>S.wait[d.id]=d.data());render()});
+ }
+ render();
+})();
+</script>
+</body></html>
